@@ -1,283 +1,306 @@
-// -----------------------------
-// Integrated Game Architecture with MVP Screen System (TextMeshPro)
-// -----------------------------
-
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
-
-// TextMeshPro
+using UnityEngine.U2D;
+using UnityEngine.UI;
 
 #region Core Interfaces
 
-/// <summary>
-/// Entry point to initialize core systems.
-/// </summary>
 public interface IBootstrapper
 {
-    void Bootstrap();
+	void Bootstrap();
 }
 
-/// <summary>
-/// Loads configuration assets by name and deserializes them.
-/// </summary>
 public interface IConfigLoader
 {
-    void Initialize();
-    T LoadConfig<T>(string configName);
+	void Initialize();
+	T LoadConfig<T>(string configName);
 }
 
-/// <summary>
-/// Saves and loads persistent user progress.
-/// </summary>
 public interface ISaveManager
 {
-    UserProgress LoadProgress();
-    void SaveProgress(UserProgress progress);
+	UserProgress LoadProgress();
+	void SaveProgress(UserProgress progress);
 }
 
-/// <summary>
-/// Marker for a screen's data/state model.
-/// </summary>
-public interface IScreenModel { }
+public interface IScreenModel
+{
+}
 
-/// <summary>
-/// Defines contract for view components on screen prefabs.
-/// </summary>
 public interface IScreenView
 {
-    void SetPresenter(IScreenPresenter presenter);
+	void SetPresenter(IScreenPresenter presenter);
 }
 
-/// <summary>
-/// Presenter logic for a screen: handles events and updates.
-/// </summary>
 public interface IScreenPresenter
 {
-    void Initialize();
-    void OnDestroy();
+	void Initialize();
+	void OnDestroy();
+}
+
+public interface ICardModel
+{
+	string CardId { get; }
+}
+
+public interface IDeckModel
+{
+	string DeckId { get; }
+	List<ICardModel> Cards { get; }
 }
 
 #endregion
 
-#region Data Models
+#region Data & Config Models
 
-/// <summary>
-/// Serializable user progress data.
-/// </summary>
 [Serializable]
 public class UserProgress
 {
-    public int Level;
-    public int Score;
+	public int Level;
+	public int Score;
+}
+
+[Serializable]
+public class CardModel : ICardModel
+{
+	public string CardId;
+	string ICardModel.CardId => CardId;
+}
+
+public class DeckModel : IDeckModel
+{
+	public string DeckId { get; private set; }
+	public List<ICardModel> Cards { get; private set; }
+
+	public DeckModel(string deckId, IEnumerable<ICardModel> cards)
+	{
+		DeckId = deckId;
+		Cards = new List<ICardModel>(cards);
+	}
+}
+
+// Config container matching JSON structure
+[Serializable]
+public class DeckConfig
+{
+	public string DeckId;
+	public List<string> CardIds;
+}
+
+[Serializable]
+public class GameConfig
+{
+	public List<DeckConfig> Decks;
+}
+
+public class GameScreenModel : IScreenModel
+{
+	public List<DeckModel> Decks { get; private set; }
+
+	public GameScreenModel(IEnumerable<DeckModel> decks)
+	{
+		Decks = new List<DeckModel>(decks);
+	}
 }
 
 #endregion
 
-#region Config Loader Implementation
+#region Sprite Provider
 
-/// <summary>
-/// Example config loader using Resources and JsonUtility.
-/// </summary>
+public static class CardSpriteProvider
+{
+	private static SpriteAtlas _atlas;
+
+	public static void Initialize(string atlasKey)
+	{
+		Addressables.LoadAssetAsync<SpriteAtlas>(atlasKey).Completed += h =>
+		{
+			if (h.Status == AsyncOperationStatus.Succeeded) _atlas = h.Result;
+			else Debug.LogError($"Failed to load atlas '{h.DebugName}'");
+		};
+	}
+
+	public static Sprite GetSprite(string cardId) => _atlas != null ? _atlas.GetSprite(cardId) : null;
+}
+
+#endregion
+
+#region Config Loader & Save Manager
+
 public class ConfigLoader : IConfigLoader
 {
-    public void Initialize()
-    {
-        Debug.Log("ConfigLoader: Initialization complete.");
-    }
+	public void Initialize() => Debug.Log("ConfigLoader initialized");
 
-    public T LoadConfig<T>(string configName)
-    {
-        var textAsset = Resources.Load<TextAsset>($"Configs/{configName}");
-        if (textAsset == null)
-        {
-            Debug.LogError($"Config '{configName}' not found in Resources/Configs.");
-            return default;
-        }
-        return JsonUtility.FromJson<T>(textAsset.text);
-    }
+	public T LoadConfig<T>(string configName)
+	{
+		var asset = Resources.Load<TextAsset>($"Configs/{configName}");
+		if (asset == null)
+		{
+			Debug.LogError($"Config '{configName}' not found in Resources/Configs");
+			return default;
+		}
+
+		return JsonUtility.FromJson<T>(asset.text);
+	}
 }
 
-#endregion
-
-#region Save Manager Implementation
-
-/// <summary>
-/// Simple JSON-based save system using PlayerPrefs.
-/// </summary>
 public class SaveManager : ISaveManager
 {
-    private const string SaveKey = "USER_PROGRESS";
+	private const string SaveKey = "USER_PROGRESS";
 
-    public UserProgress LoadProgress()
-    {
-        if (PlayerPrefs.HasKey(SaveKey))
-        {
-            string json = PlayerPrefs.GetString(SaveKey);
-            return JsonUtility.FromJson<UserProgress>(json);
-        }
-        return new UserProgress();
-    }
+	public UserProgress LoadProgress()
+	{
+		if (PlayerPrefs.HasKey(SaveKey)) return JsonUtility.FromJson<UserProgress>(PlayerPrefs.GetString(SaveKey));
+		return new UserProgress();
+	}
 
-    public void SaveProgress(UserProgress progress)
-    {
-        string json = JsonUtility.ToJson(progress);
-        PlayerPrefs.SetString(SaveKey, json);
-        PlayerPrefs.Save();
-        Debug.Log("SaveManager: Progress saved.");
-    }
+	public void SaveProgress(UserProgress progress)
+	{
+		PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(progress));
+		PlayerPrefs.Save();
+	}
 }
 
 #endregion
 
 #region MVP Screen System
 
-/// <summary>
-/// Manages dynamic registration and display of screens via Addressables.
-/// </summary>
 public class ScreenManager
 {
-    private readonly RectTransform _screenParent;
-    private readonly Dictionary<string, ScreenRegistration> _registry = new();
+	private readonly RectTransform _screenParent;
+	private readonly Dictionary<string, ScreenRegistration> _registry = new();
+	private GameObject _currentGO;
+	private IScreenPresenter _currentPresenter;
 
-    private GameObject _currentGO;
-    private IScreenPresenter _currentPresenter;
+	public ScreenManager(RectTransform screenParent)
+	{
+		_screenParent = screenParent;
+	}
 
-    public ScreenManager(RectTransform screenParent)
-    {
-        _screenParent = screenParent;
-    }
+	public void RegisterScreen(string alias, string addressableKey, IScreenModel model,
+		Func<IScreenView, IScreenPresenter> factory)
+	{
+		_registry[alias] = new ScreenRegistration(addressableKey, model, factory);
+	}
 
-    public void RegisterScreen(
-        string alias,
-        string addressableKey,
-        IScreenModel modelInstance,
-        Func<IScreenView, IScreenPresenter> presenterFactory)
-    {
-        _registry[alias] = new ScreenRegistration(addressableKey, modelInstance, presenterFactory);
-    }
+	public async Task ShowScreenAsync(string alias)
+	{
+		if (!_registry.TryGetValue(alias, out var reg)) throw new ArgumentException($"Alias '{alias}' not found.");
+		_currentPresenter?.OnDestroy();
+		if (_currentGO != null) GameObject.Destroy(_currentGO);
+		var handle = Addressables.LoadAssetAsync<GameObject>(reg.AddressableKey);
+		await handle.Task;
+		var prefab = handle.Result;
+		_currentGO = GameObject.Instantiate(prefab, _screenParent, false);
+		if (_currentGO.TryGetComponent<RectTransform>(out var rt))
+		{
+			rt.anchorMin = Vector2.zero;
+			rt.anchorMax = Vector2.one;
+			rt.anchoredPosition = Vector2.zero;
+			rt.sizeDelta = Vector2.zero;
+			rt.localScale = Vector3.one;
+		}
 
-    public async Task ShowScreenAsync(string alias)
-    {
-        if (!_registry.TryGetValue(alias, out var reg))
-            throw new ArgumentException($"No screen registered under alias '{alias}'");
+		var view = _currentGO.GetComponent<IScreenView>();
+		if (view == null) throw new InvalidOperationException("View must implement IScreenView");
+		_currentPresenter = reg.PresenterFactory(view);
+		view.SetPresenter(_currentPresenter);
+		_currentPresenter.Initialize();
+	}
 
-        // Tear down existing
-        _currentPresenter?.OnDestroy();
-        if (_currentGO != null) GameObject.Destroy(_currentGO);
+	private class ScreenRegistration
+	{
+		public string AddressableKey;
+		public IScreenModel Model;
+		public Func<IScreenView, IScreenPresenter> PresenterFactory;
 
-        // Load prefab
-        var handle = Addressables.LoadAssetAsync<GameObject>(reg.AddressableKey);
-        await handle.Task;
-        var prefab = handle.Result;
-
-        // Instantiate under Canvas
-        // Instantiate under Canvas, resetting local transform
-_currentGO = GameObject.Instantiate(prefab, _screenParent, false); // worldPositionStays = false
-
-// Ensure full-screen anchors and correct scale
-if (_currentGO.TryGetComponent<RectTransform>(out var rt))
-{
-    rt.anchorMin = Vector2.zero;
-    rt.anchorMax = Vector2.one;
-    rt.anchoredPosition = Vector2.zero;
-    rt.sizeDelta = Vector2.zero;
-    rt.localScale = Vector3.one; // reset scale in case prefab had different scale
-}
-        /*if (_currentGO.TryGetComponent<RectTransform>(out var rt))
-        {
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.anchoredPosition = Vector2.zero;
-            rt.sizeDelta = Vector2.zero;
-        }*/
-
-        // MVP wiring
-        var view = _currentGO.GetComponent<IScreenView>();
-        if (view == null)
-            throw new InvalidOperationException($"Prefab '{reg.AddressableKey}' must implement IScreenView");
-
-        _currentPresenter = reg.PresenterFactory(view);
-        view.SetPresenter(_currentPresenter);
-        _currentPresenter.Initialize();
-    }
-
-    private class ScreenRegistration
-    {
-        public string AddressableKey;
-        public IScreenModel Model;
-        public Func<IScreenView, IScreenPresenter> PresenterFactory;
-
-        public ScreenRegistration(string key, IScreenModel model, Func<IScreenView, IScreenPresenter> factory)
-        {
-            AddressableKey = key;
-            Model = model;
-            PresenterFactory = factory;
-        }
-    }
+		public ScreenRegistration(string key, IScreenModel model, Func<IScreenView, IScreenPresenter> f)
+		{
+			AddressableKey = key;
+			Model = model;
+			PresenterFactory = f;
+		}
+	}
 }
 
 #endregion
 
-#region GameScreen MVP Implementation
+#region GameScreen MVP Implementation with Undo & Config
 
-/// <summary>
-/// Data model for the Game screen.
-/// </summary>
-public class GameScreenModel : IScreenModel
-{
-    public int Score { get; set; }
-}
-
-/// <summary>
-/// View interface for Game screen UI.
-/// </summary>
 public interface IGameScreenView : IScreenView
 {
-    event Action OnPlayButtonClicked;
-    void DisplayScore(int score);
+	void SetupDecks(IEnumerable<DeckModel> decks);
+	void ClearDeck(string deckId);
+	void AddCardToDeck(string deckId, ICardModel card);
+	event Action<string, string, string> OnCardDropped;
+	event Action OnUndoRequested;
+	RectTransform DragContainer { get; }
+	Button UndoButton { get; }
 }
 
-/// <summary>
-/// Presenter for Game screen: handles play button logic.
-/// </summary>
 public class GameScreenPresenter : IScreenPresenter
 {
-    private readonly IGameScreenView _view;
-    private readonly GameScreenModel _model;
-    private readonly ISaveManager _saveManager;
+	private readonly IGameScreenView _view;
+	private readonly GameScreenModel _model;
+	private readonly ISaveManager _saveManager;
+	private Stack<(string card, string from, string to)> _history = new();
 
-    public GameScreenPresenter(IGameScreenView view, GameScreenModel model, ISaveManager saveManager)
-    {
-        _view = view;
-        _model = model;
-        _saveManager = saveManager;
-    }
+	public GameScreenPresenter(IGameScreenView v, GameScreenModel m, ISaveManager s)
+	{
+		_view = v;
+		_model = m;
+		_saveManager = s;
+	}
 
-    public void Initialize()
-    {
-        _view.OnPlayButtonClicked += HandlePlayClicked;
-        _view.DisplayScore(_model.Score);
-    }
+	public void Initialize()
+	{
+		_view.SetupDecks(_model.Decks);
+		_view.OnCardDropped += OnDropped;
+		_view.OnUndoRequested += OnUndo;
+	}
 
-    public void OnDestroy()
-    {
-        _view.OnPlayButtonClicked -= HandlePlayClicked;
-    }
+	public void OnDestroy()
+	{
+		_view.OnCardDropped -= OnDropped;
+		_view.OnUndoRequested -= OnUndo;
+	}
 
-    private void HandlePlayClicked()
-    {
-        _model.Score++;
-        _view.DisplayScore(_model.Score);
-        _saveManager.SaveProgress(new UserProgress { Level = 1, Score = _model.Score });
-    }
+	private void OnDropped(string card, string from, string to)
+	{
+		_history.Push((card, from, to));
+		Swap(card, from, to);
+	}
+
+	private void OnUndo()
+	{
+		if (_history.Count == 0) return;
+		var (card, from, to) = _history.Pop();
+		Swap(card, to, from);
+	}
+
+	private void Swap(string cardId, string srcDeck, string dstDeck)
+	{
+		var src = _model.Decks.Find(d => d.DeckId == srcDeck);
+		var dst = _model.Decks.Find(d => d.DeckId == dstDeck);
+		var c = src.Cards.Find(x => x.CardId == cardId);
+		if (c != null && dst != null)
+		{
+			src.Cards.Remove(c);
+			dst.Cards.Add(c);
+			Refresh(srcDeck);
+			Refresh(dstDeck);
+			_saveManager.SaveProgress(new UserProgress { Level = 1, Score = _model.Decks.Count });
+		}
+	}
+
+	private void Refresh(string deckId)
+	{
+		_view.ClearDeck(deckId);
+		foreach (var c in _model.Decks.Find(d => d.DeckId == deckId).Cards) _view.AddCardToDeck(deckId, c);
+	}
 }
-
-#endregion
-
-#region BootstrapperBehaviour - Composition Root
 
 #endregion

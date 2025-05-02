@@ -1,0 +1,9 @@
+{
+  "Decks": [
+    { "DeckId": "Deck1", "CardIds": ["all_cards_0", "all_cards_1", "all_cards_2", "all_cards_3", "all_cards_4"] },
+    { "DeckId": "Deck2", "CardIds": ["all_cards_5", "all_cards_6", "all_cards_7", "all_cards_8", "all_cards_9"] },
+    { "DeckId": "Deck3", "CardIds": ["all_cards_10", "all_cards_11", "all_cards_12", "all_cards_13", "all_cards_14"] },
+    { "DeckId": "Deck4", "CardIds": ["all_cards_15", "all_cards_16", "all_cards_17", "all_cards_18", "all_cards_19"] },
+    { "DeckId": "Deck5", "CardIds": ["all_cards_20", "all_cards_21", "all_cards_22", "all_cards_23", "all_cards_24"] }
+  ]
+}

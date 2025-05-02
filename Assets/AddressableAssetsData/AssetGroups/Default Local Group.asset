@@ -17,8 +17,13 @@ MonoBehaviour:
     m_SerializedData: []
   m_GUID: 364cafdeeb106aa4681c79b5ad99f7dc
   m_SerializeEntries:
-  - m_GUID: 6d83494dd8108b64eb19a81a26509199
-    m_Address: Assets/Prefabs/GameScene.prefab
+  - m_GUID: a629947599b100140a854482cc5958dd
+    m_Address: CardAtlas
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8f2c311713f51464bb40f77d2d30a2c8
+    m_Address: GameScreen
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

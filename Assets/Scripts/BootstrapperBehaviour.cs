@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -6,40 +7,36 @@ using UnityEngine;
 /// </summary>
 public class BootstrapperBehaviour : MonoBehaviour, IBootstrapper
 {
-	[Header("UI Setup")] [SerializeField]
-	private RectTransform screenParent;
-
+	[SerializeField] private RectTransform screenParent;
 	private IConfigLoader _configLoader;
 	private ISaveManager _saveManager;
 	private ScreenManager _screenManager;
 
 	public async void Bootstrap()
 	{
-		// 1) Instantiate core managers
+		CardSpriteProvider.Initialize("CardAtlas");
 		_configLoader = new ConfigLoader();
-		_saveManager  = new SaveManager();
-		_screenManager= new ScreenManager(screenParent);
-
-		// 2) Initialize and load data
+		_saveManager = new SaveManager();
+		_screenManager = new ScreenManager(screenParent);
 		_configLoader.Initialize();
-		var progress = _saveManager.LoadProgress();
+		// Load decks from config
+		var config = _configLoader.LoadConfig<GameConfig>("GameConfig");
+		var deckModels = new List<DeckModel>();
+		if (config != null && config.Decks != null)
+		{
+			foreach (var dc in config.Decks)
+			{
+				var cards = new List<ICardModel>();
+				foreach (var id in dc.CardIds) cards.Add(new CardModel { CardId = id });
+				deckModels.Add(new DeckModel(dc.DeckId, cards));
+			}
+		}
 
-		// 3) Register screens
-		var gameModel = new GameScreenModel { Score = progress.Score };
-		_screenManager.RegisterScreen(
-			alias: "Game",
-			addressableKey: "GameScreen",
-			modelInstance: gameModel,
-			presenterFactory: view => new GameScreenPresenter(
-				(IGameScreenView)view, gameModel, _saveManager)
-		);
-
-		// 4) Show initial screen
+		var gameModel = new GameScreenModel(deckModels);
+		_screenManager.RegisterScreen("Game", "GameScreen", gameModel,
+			v => new GameScreenPresenter((IGameScreenView)v, gameModel, _saveManager));
 		await _screenManager.ShowScreenAsync("Game");
 	}
 
-	private void Awake()
-	{
-		Bootstrap();
-	}
+	private void Awake() => Bootstrap();
 }

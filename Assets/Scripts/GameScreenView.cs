@@ -1,32 +1,75 @@
 using System;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 /// <summary>
 /// MonoBehaviour attached to GameScreen prefab for UI logic.
-/// Uses TextMeshPro for text elements.
 /// </summary>
-[RequireComponent(typeof(RectTransform))]
+
 public class GameScreenView : MonoBehaviour, IGameScreenView
 {
-	[SerializeField] private UnityEngine.UI.Button playButton;
-	[SerializeField] private TextMeshProUGUI scoreText; // TextMeshPro field
-
-	public event Action OnPlayButtonClicked;
-	private IScreenPresenter _presenter;
-
-	public void SetPresenter(IScreenPresenter presenter)
-	{
-		_presenter = presenter;
-	}
+	[SerializeField] private RectTransform deckContainerParent;
+	[SerializeField] private RectTransform dragContainer;
+	[SerializeField] private GameObject deckAreaPrefab;
+	[SerializeField] private GameObject cardPrefab;
+	[SerializeField] private Button undoButton;
+	private Dictionary<string, RectTransform> _deckAreas = new();
+	public event Action<string, string, string> OnCardDropped;
+	public event Action OnUndoRequested;
+	public RectTransform DragContainer => dragContainer;
+	public Button UndoButton => undoButton;
 
 	private void Awake()
 	{
-		playButton.onClick.AddListener(() => OnPlayButtonClicked?.Invoke());
+		if (undoButton != null) undoButton.onClick.AddListener(() => OnUndoRequested?.Invoke());
 	}
 
-	public void DisplayScore(int score)
+	public void SetPresenter(IScreenPresenter presenter)
 	{
-		scoreText.text = score.ToString();
+	}
+
+	public void SetupDecks(IEnumerable<DeckModel> decks)
+	{
+		foreach (var deck in decks)
+		{
+			var go = Instantiate(deckAreaPrefab, deckContainerParent);
+			go.name = deck.DeckId;
+			var rt = go.GetComponent<RectTransform>();
+			rt.localScale = Vector3.one;
+			_deckAreas[deck.DeckId] = rt;
+			ClearDeck(deck.DeckId);
+			foreach (var c in deck.Cards) AddCardToDeck(deck.DeckId, c);
+		}
+	}
+
+	public void ClearDeck(string deckId)
+	{
+		if (_deckAreas.TryGetValue(deckId, out var rt))
+			foreach (Transform t in rt)
+				Destroy(t.gameObject);
+	}
+
+	public void AddCardToDeck(string deckId, ICardModel card)
+	{
+		if (_deckAreas.TryGetValue(deckId, out var rt))
+		{
+			var cardGO = Instantiate(cardPrefab, rt);
+			cardGO.name = card.CardId;
+			var cv = cardGO.GetComponent<CardView>() ?? cardGO.AddComponent<CardView>();
+			cv.Initialize(card.CardId, deckId, dragContainer);
+			if (cardGO.TryGetComponent<Image>(out var img))
+			{
+				img.sprite = CardSpriteProvider.GetSprite(card.CardId);
+				img.SetNativeSize();
+			}
+		}
+	}
+
+	public void CardDropped(string cvCardId, string prev, string deckId)
+	{
+		OnCardDropped?.Invoke(cvCardId, prev, deckId);
 	}
 }
