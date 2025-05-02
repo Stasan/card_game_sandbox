@@ -11,6 +11,9 @@ Unity version 2022.3.39f1
 ## Used assets
 https://natomarcacini.itch.io/card-asset-pack
 
+## Working with project
+Open the unity project and run the Scenes/SampleScene.unity
+
 
 ## AI usage
 
